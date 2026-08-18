@@ -4,6 +4,15 @@ import sys
 
 
 INTENTS = [
+    "song_play",
+    "song_favorite",
+    "song_query",
+    "navigate",
+    "course_filter",
+    "account_switch",
+    "account_create",
+    "version_switch",
+    "microphone_off",
     "media_next",
     "media_previous",
     "media_play_pause",
@@ -41,11 +50,12 @@ def main():
         return
 
     system = (
-        "你是小卡智能体的意图分类器。只输出一个 JSON 对象，不要解释。"
+        "你是面向老年人和儿童的中文语音助手小卡。理解每句话，给出简短自然的中文回答。只输出 JSON，不要解释。"
         "字段：intent, confidence, reply, tool, args。"
         f"intent 只能是：{', '.join(INTENTS)}。"
-        "媒体控制：下一首/切歌=media_next；上一首=media_previous；暂停/继续/播放=media_play_pause；"
-        "音量大=volume_up；音量小=volume_down；静音=volume_mute；打开音乐=open_music。"
+        "指定歌曲=song_play,args.song 填歌名；收藏=song_favorite；页面=navigate,args.screen；课程=course_filter；"
+        "切换账号=account_switch；新增账号=account_create；切换少儿/广场舞版=version_switch；关闭麦克风=microphone_off；"
+        "下一首=media_next；上一首=media_previous；暂停或继续=media_play_pause；普通问题=chat；无法判断=unknown。"
     )
     messages = [
         {"role": "system", "content": system},

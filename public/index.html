@@ -2867,12 +2867,6 @@ function runVoiceCommand(cmd) {
   appendLog('ASR', '识别结果：' + cmd);
   setVoiceStatus('🤔 正在理解您的意图...', '本地 Qwen3 0.6B Agent 处理中');
 
-  var localIntent = parseVoiceIntent(cmd);
-  if (localIntent && localIntent.intent !== '未识别') {
-    finishVoiceCommand(localIntent, '原型本地动作');
-    return;
-  }
-
   fetch(voiceApiBase + '/api/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2881,23 +2875,63 @@ function runVoiceCommand(cmd) {
     return res.json();
   }).then(function(data) {
     if (!data.ok) throw new Error(data.error || 'Agent 请求失败');
+    // Every utterance goes through Qwen first. The local intent table only
+    // supplies the UI action when the model returns an intent the prototype
+    // can execute, or when the model is unavailable.
+    var qwenIntent = resolveQwenUiIntent(data, cmd);
+    var qwenAnswered = data.engine === 'qwen' && data.intent && data.intent !== 'unknown' && data.intent !== '未识别' && data.reply;
+    var executableIntent = qwenIntent && qwenIntent.intent !== '未识别' ? qwenIntent : null;
+    var reply = qwenAnswered ? data.reply : (executableIntent ? executableIntent.tts : (data.reply || '抱歉，没有听清，请再说一次'));
     var remoteIntent = {
       intent: data.intent || '未识别',
       args: JSON.stringify(data.args || {}),
       tool: data.tool || '无需工具',
-      result: data.toolResult && data.toolResult.ok === false ? '系统操作未成功：' + (data.toolResult.error || '未知错误') : (data.reply || '已处理'),
-      done: data.reply || '已处理',
-      tts: data.reply || '已处理',
-      action: function() { applyRemoteVoiceAction(data); }
+      result: data.toolResult && data.toolResult.ok === false ? '系统操作未成功：' + (data.toolResult.error || '未知错误') : reply,
+      done: reply,
+      tts: reply,
+      action: function() {
+        if (executableIntent && executableIntent.action) executableIntent.action();
+        else applyRemoteVoiceAction(data);
+      }
     };
-    appendLog('理解', '意图：' + remoteIntent.intent + '｜引擎：' + (data.engine || 'rules'));
-    finishVoiceCommand(remoteIntent, data.tool || 'Qwen Agent');
+    appendLog('理解', '意图：' + remoteIntent.intent + '｜引擎：' + (data.engine || 'rules') + '｜已由 Qwen 处理');
+    finishVoiceCommand(remoteIntent, (data.engine === 'qwen' ? 'Qwen 模型' : 'Qwen 故障兜底') + '：' + (data.tool || '无需工具'));
   }).catch(function(err) {
     appendLog('错误', err.message || '无法连接小卡服务');
     setVoiceStatus('❌ 执行失败', '请确认小卡服务正在运行');
     speakVoice('我这边暂时无法连接智能体服务。');
     voiceBusy = false;
   });
+}
+
+function resolveQwenUiIntent(data, originalText) {
+  var name = data.intent || '';
+  var args = data.args || {};
+  if (data.engine === 'qwen') {
+    if (name === 'song_play') {
+      var song = getSongByName(args.song) || findSongByText(args.song || originalText);
+      if (song) return makePlaySongIntent(song, 'Qwen 播放歌曲');
+    }
+    if (name === 'song_favorite') return parseSongIntent('记住我喜欢' + (args.song || originalText));
+    if (name === 'song_query') return parseSongIntent('我喜欢什么歌');
+    if (name === 'media_next') return makePlaySongIntent(getRelativeSong(1), 'Qwen 下一首');
+    if (name === 'media_previous') return makePlaySongIntent(getRelativeSong(-1), 'Qwen 上一首');
+    if (name === 'account_switch') return parseAccountIntent(args.user ? '换到' + args.user + '的账号' : originalText);
+    if (name === 'account_create') return parseAccountIntent(args.user ? '我是' + args.user : originalText);
+    if (name === 'course_filter' && args.filter) return makeCourseFilterIntent(args.filter);
+    if (name === 'version_switch') return parseVoiceIntent(args.version === 'kids' ? '切换少儿版' : '切换广场舞版');
+    if (name === 'microphone_off') return parseVoiceIntent('关闭麦克风');
+    if (name === 'navigate' && args.screen) {
+      var screens = {home:'首页',list:'广场舞列表',achieve:'成就页面',profile:'我的页面',settings:'设置页',kids:'少儿舞蹈专区'};
+      if (screens[args.screen]) return makeNavigationIntent(args.screen, screens[args.screen], data.reply, args.screen === 'kids' ? 'kids' : null);
+      var features = {favorites:'我的收藏',volume:'音效与音量',display:'画面与显示',privacy:'隐私与安全',about:'关于我们爱跳舞'};
+      if (features[args.screen]) return parseNavigationIntent('打开' + features[args.screen]);
+    }
+    if (name === 'media_play_pause') return parseVoiceIntent(args.action === 'pause' ? '暂停' : '继续播放');
+    if (name === 'chat' || name === 'unknown') return null;
+  }
+  // Qwen unavailable or malformed: preserve basic usability with local rules.
+  return parseVoiceIntent(originalText);
 }
 
 function finishVoiceCommand(intent, source) {

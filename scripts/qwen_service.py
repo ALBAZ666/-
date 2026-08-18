@@ -9,6 +9,15 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 INTENTS = [
+    "song_play",
+    "song_favorite",
+    "song_query",
+    "navigate",
+    "course_filter",
+    "account_switch",
+    "account_create",
+    "version_switch",
+    "microphone_off",
     "media_next",
     "media_previous",
     "media_play_pause",
@@ -64,11 +73,19 @@ def main():
     print(json.dumps({"ready": True}, ensure_ascii=False), flush=True)
 
     system = (
-        "你是小卡智能体的意图分类器。只输出一个 JSON 对象，不要解释。"
+        "你是面向老年人和儿童的中文语音助手小卡。理解用户的每一句话，并给出简短、自然、尊重的中文回答。"
+        "只输出一个 JSON 对象，不要输出思考过程或其他文字。"
         "字段：intent, confidence, reply, tool, args。"
         f"intent 只能是：{', '.join(INTENTS)}。"
-        "媒体控制：下一首/切歌=media_next；上一首=media_previous；暂停/继续/播放=media_play_pause；"
-        "音量大=volume_up；音量小=volume_down；静音=volume_mute；打开音乐=open_music。"
+        "可播放歌曲：最炫民族风、月亮之上、甜蜜蜜、自由飞翔、荷塘月色、快乐拉丁、活力街舞、阳光体操、民族小舞者。"
+        "指定或想听歌曲用 song_play，args.song 填歌名；收藏歌曲用 song_favorite，args.song 填歌名；"
+        "下一首/换一首用 media_next；上一首用 media_previous；暂停、继续或播放控制用 media_play_pause，args.action 填 pause 或 play；"
+        "打开页面用 navigate，args.screen 只能填 home/list/achieve/profile/settings/kids/favorites/volume/display/privacy/about；"
+        "入门、进阶、热门、最新课程用 course_filter，args.filter 填对应分类；"
+        "切换已有账号用 account_switch，args.user 填姓名；用户说我是/我叫某人或新增账号用 account_create，args.user 填姓名；"
+        "切换少儿版或广场舞版用 version_switch，args.version 填 kids 或 elderly；关闭麦克风用 microphone_off；"
+        "询问收藏或最近歌曲用 song_query。不能执行但可以回答的问题用 chat，并直接在 reply 回答。"
+        "无法判断才用 unknown，reply 要礼貌询问用户想做什么。"
     )
 
     for line in sys.stdin:
