@@ -2647,6 +2647,12 @@ function createVoiceRecognition() {
         voiceAwake ? '识别到后会自动执行' : '说“小卡小卡”唤醒我'
       );
     }
+    // Wake on interim speech too. Continuous recognition may lose the final
+    // segment during a network restart, which used to make "小卡小卡"
+    // appear unheard even though it was visible in the interim transcript.
+    if (interimText && !voiceAwake && Date.now() > voiceMutedUntil && containsWakeWord(interimText)) {
+      handleVoiceText(interimText);
+    }
     if (finalText && Date.now() > voiceMutedUntil) handleVoiceText(finalText);
   };
 
