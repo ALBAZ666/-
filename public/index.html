@@ -2653,7 +2653,10 @@ function createVoiceRecognition() {
     if (interimText && !voiceAwake && Date.now() > voiceMutedUntil && containsWakeWord(interimText)) {
       handleVoiceText(interimText);
     }
-    if (finalText && Date.now() > voiceMutedUntil) handleVoiceText(finalText);
+    // Final ASR text is always a user command and must reach Qwen. The mute
+    // window is only for interim wake-word noise; it must never drop a real
+    // command such as "换一首" or a song name.
+    if (finalText) handleVoiceText(finalText);
   };
 
   rec.onerror = function(event) {
