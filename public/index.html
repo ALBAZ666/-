@@ -2494,6 +2494,7 @@ function updateKidsTimer(seconds) {
 
 /* ===== 小卡真实语音智能体 ===== */
 var voiceBusy = false;
+var voiceCommandQueue = [];
 var voiceMonitoring = false;
 var voiceAwake = false;
 var voiceRecognition = null;
@@ -2599,7 +2600,10 @@ function containsWakeWord(text) {
 }
 
 function stripWakeWord(text) {
-  return String(text || '').replace(/小卡小卡|小卡/g, '').trim();
+  return String(text || '')
+    .replace(/小卡小卡|小卡/g, '')
+    .replace(/[，。！？、,.!?;；：:\s]/g, '')
+    .trim();
 }
 
 function setVoiceAwake(on) {
@@ -2875,7 +2879,14 @@ function voiceDemo(cmd) {
 }
 
 function runVoiceCommand(cmd) {
-  if (voiceBusy) return;
+  cmd = String(cmd || '').trim();
+  if (!cmd || !stripWakeWord(cmd)) return;
+  if (voiceBusy) {
+    if (voiceCommandQueue.indexOf(cmd) < 0) voiceCommandQueue.push(cmd);
+    appendLog('等待', '上一条指令处理中，已排队：' + cmd);
+    setVoiceStatus('⏳ 指令已排队', '上一条完成后会自动发送给 Qwen');
+    return;
+  }
   voiceBusy = true;
   setVoiceAwake(true);
   appendLog('ASR', '识别结果：' + cmd);
@@ -2916,8 +2927,15 @@ function runVoiceCommand(cmd) {
     appendLog('错误', err.message || '无法连接小卡服务');
     setVoiceStatus('❌ 执行失败', '请确认小卡服务正在运行');
     speakVoice('我这边暂时无法连接智能体服务。');
-    voiceBusy = false;
+    finishVoiceCommandCycle();
   });
+}
+
+function finishVoiceCommandCycle() {
+  voiceBusy = false;
+  if (!voiceCommandQueue.length) return;
+  var nextCommand = voiceCommandQueue.shift();
+  setTimeout(function() { runVoiceCommand(nextCommand); }, 80);
 }
 
 function resolveQwenUiIntent(data, originalText) {
@@ -2966,7 +2984,7 @@ function finishVoiceCommand(intent, source) {
       }
     }
     speakVoice(intent.tts);
-    voiceBusy = false;
+    finishVoiceCommandCycle();
     setTimeout(function() {
       if (voiceMonitoring && !voiceAwake) setVoiceStatus('说“小卡小卡”唤醒我', '麦克风正在待命');
     }, 1200);
