@@ -5,7 +5,7 @@
 ## 启动
 
 ```bat
-cd /d E:\AI\XiaoKaAgent
+cd /d 项目文件夹
 npm start
 ```
 
@@ -36,4 +36,4 @@ set XIAOKA_QWEN_MODEL=E:\AI\Models\Qwen3-0.6B
 npm start
 ```
 
-当前电脑已检测到 Python 3.13、PyTorch、Transformers 和 Accelerate，可直接使用 `start-xiaoka.bat` 启动。
+分享包不包含约 1.5GB 的 Qwen 模型文件。使用 Qwen 时，请将模型目录放在项目同级的 `Models\Qwen3-0.6B`，或在启动前设置 `XIAOKA_QWEN_MODEL`。也可以设置 `XIAOKA_PYTHON` 指向安装了 PyTorch、Transformers 和 Accelerate 的 Python。双击 `start-xiaoka.bat` 后打开 `http://localhost:8123`。
