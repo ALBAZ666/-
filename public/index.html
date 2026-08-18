@@ -2876,7 +2876,8 @@ function runVoiceCommand(cmd) {
   voiceBusy = true;
   setVoiceAwake(true);
   appendLog('ASR', '识别结果：' + cmd);
-  setVoiceStatus('🤔 正在理解您的意图...', '本地 Qwen3 0.6B Agent 处理中');
+  appendLog('理解', '已发送给 Qwen3-0.6B，正在理解并生成执行方案...');
+  setVoiceStatus('🤔 Qwen 正在理解...', '语音文字已送入模型，完成后自动执行');
 
   fetch(voiceApiBase + '/api/agent', {
     method: 'POST',
