@@ -2508,6 +2508,7 @@ var voiceStartPending = false;
 var voiceManuallyClosed = lsGet('wadw_voice_manually_closed', '') === '1';
 var voiceMediaStream = null;
 var voiceLastStartAt = 0;
+var voiceSpeechVoices = [];
 var voiceApiBase = 'http://localhost:8123';
 var VoiceRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -2581,18 +2582,42 @@ function setVoiceStatus(title, sub) {
 }
 
 function speakVoice(text) {
-  if (!text || !('speechSynthesis' in window)) return;
+  if (!text) return;
+  if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+    appendLog('播报', '当前浏览器没有可用的虚拟语音，文字回答仍会正常显示');
+    return;
+  }
   try {
     voiceMutedUntil = Date.now() + Math.max(1800, text.length * 260);
     window.speechSynthesis.cancel();
     var utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'zh-CN';
-    utter.rate = 1;
-    utter.pitch = 1;
+    var voices = voiceSpeechVoices.length ? voiceSpeechVoices : window.speechSynthesis.getVoices();
+    var chineseVoice = voices.filter(function(voice) {
+      return /^zh(-|_)?/i.test(voice.lang) || /中文|普通话|Chinese|Mandarin/i.test(voice.name);
+    })[0];
+    if (chineseVoice) utter.voice = chineseVoice;
+    utter.lang = chineseVoice ? chineseVoice.lang : 'zh-CN';
+    utter.rate = 0.95;
+    utter.pitch = 1.05;
+    utter.volume = 1;
+    utter.onstart = function() { appendLog('播报', '小卡正在说话：' + text); };
+    utter.onerror = function(event) {
+      if (event.error !== 'canceled' && event.error !== 'interrupted') appendLog('播报', '虚拟语音暂时不可用，文字回答仍保留');
+    };
     window.speechSynthesis.speak(utter);
   } catch (e) {
     appendLog('播报', '语音播报不可用，继续执行页面操作');
   }
+}
+
+function loadVoiceSpeechVoices() {
+  if (!('speechSynthesis' in window)) return;
+  voiceSpeechVoices = window.speechSynthesis.getVoices() || [];
+}
+
+if ('speechSynthesis' in window) {
+  loadVoiceSpeechVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoiceSpeechVoices;
 }
 
 function containsWakeWord(text) {
