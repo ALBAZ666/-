@@ -2874,19 +2874,20 @@ function startVoiceListening(forcePrompt) {
 }
 
 function handleVoiceText(text) {
-  appendLog('ASR', text);
-
   if (!voiceAwake && containsWakeWord(text)) {
+    appendLog('唤醒', '检测到唤醒词，已准备接收指令');
     document.getElementById('voiceOverlay').classList.add('show');
     setVoiceAwake(true);
-    appendLog('唤醒', '检测到唤醒词“小卡小卡”');
     var commandAfterWake = stripWakeWord(text);
     speakVoice(commandAfterWake ? '我在，马上处理。' : '我在，请说。');
     if (commandAfterWake) runVoiceCommand(commandAfterWake);
     return;
   }
 
+  // Background conversation is intentionally discarded: it is neither sent
+  // to Qwen nor written to the visible assistant history.
   if (!voiceAwake) return;
+  appendLog('ASR', text);
   var command = stripWakeWord(text);
   if (command) {
     runVoiceCommand(command);
