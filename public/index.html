@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>小卡 Agent</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Local Voice Agent</p>
+        <h1>小卡</h1>
+        <p class="lead">右下角打开麦克风，说“小卡小卡”唤醒我。现在可以控制音乐：下一首、上一首、暂停、继续、调大音量、调小音量。</p>
+      </div>
+      <div class="status-card">
+        <div class="status-row">
+          <span>监听状态</span>
+          <strong id="monitorState">未开启</strong>
+        </div>
+        <div class="status-row">
+          <span>唤醒词</span>
+          <strong>小卡小卡</strong>
+        </div>
+        <div class="status-row">
+          <span>理解引擎</span>
+          <strong id="engineState">检查中</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>指令测试</h2>
+          <span>无需语音也能点一下试</span>
+        </div>
+        <div class="command-grid">
+          <button data-command="小卡小卡 下一首">下一首</button>
+          <button data-command="小卡小卡 上一首">上一首</button>
+          <button data-command="小卡小卡 暂停">暂停</button>
+          <button data-command="小卡小卡 继续播放">继续</button>
+          <button data-command="小卡小卡 音量大一点">音量加</button>
+          <button data-command="小卡小卡 音量小一点">音量减</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>运行日志</h2>
+          <button class="ghost" id="clearLog">清空</button>
+        </div>
+        <div class="log" id="log"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="voice-panel" id="voicePanel" aria-live="polite">
+    <div class="voice-orb" id="voiceOrb">🎤</div>
+    <div class="voice-copy">
+      <div class="voice-title" id="voiceTitle">小卡待命中</div>
+      <div class="voice-sub" id="voiceSub">点击麦克风开始监听</div>
+      <div class="voice-transcript" id="voiceTranscript">等待语音...</div>
+    </div>
+  </div>
+
+  <button class="mic-fab" id="micFab" title="开启/关闭小卡监听" aria-label="开启或关闭小卡监听">
+    <span class="ring"></span>
+    <span class="icon">🎤</span>
+  </button>
+
+  <script src="/app.js"></script>
+</body>
+</html>

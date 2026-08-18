@@ -1,0 +1,17 @@
+{
+  "agentName": "小卡",
+  "wakeWords": ["小卡小卡", "小卡"],
+  "ownerPreference": {
+    "language": "zh-CN",
+    "tone": "简短、亲切、执行优先"
+  },
+  "enabledTools": [
+    "media_next",
+    "media_previous",
+    "media_play_pause",
+    "volume_up",
+    "volume_down",
+    "volume_mute",
+    "open_music"
+  ]
+}

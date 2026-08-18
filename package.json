@@ -1,0 +1,13 @@
+{
+  "name": "xiaoka-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "小卡本地桌面语音智能体：唤醒词、语音识别、音乐控制、Qwen 意图理解预留。",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
