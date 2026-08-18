@@ -2652,6 +2652,11 @@ function createVoiceRecognition() {
 
   rec.onerror = function(event) {
     if (event.error === 'aborted' || event.error === 'no-speech') return;
+    if (event.error === 'network') {
+      appendLog('监听', '语音识别服务短暂波动，正在自动重试');
+      setVoiceStatus('正在恢复监听...', '无需操作，小卡会自动重新连接');
+      return;
+    }
     appendLog('错误', event.error || '语音识别失败');
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
       voiceMonitoring = false;
@@ -2881,11 +2886,12 @@ function runVoiceCommand(cmd) {
     var qwenIntent = resolveQwenUiIntent(data, cmd);
     var qwenAnswered = data.engine === 'qwen' && data.intent && data.intent !== 'unknown' && data.intent !== '未识别' && data.reply;
     var executableIntent = qwenIntent && qwenIntent.intent !== '未识别' ? qwenIntent : null;
+    var corrected = executableIntent && (data.intent === 'unknown' || data.intent === '未识别' || !data.intent);
     var reply = qwenAnswered ? data.reply : (executableIntent ? executableIntent.tts : (data.reply || '抱歉，没有听清，请再说一次'));
     var remoteIntent = {
-      intent: data.intent || '未识别',
-      args: JSON.stringify(data.args || {}),
-      tool: data.tool || '无需工具',
+      intent: corrected ? executableIntent.intent : (data.intent || '未识别'),
+      args: corrected ? executableIntent.args : JSON.stringify(data.args || {}),
+      tool: corrected ? executableIntent.tool : (data.tool || '无需工具'),
       result: data.toolResult && data.toolResult.ok === false ? '系统操作未成功：' + (data.toolResult.error || '未知错误') : reply,
       done: reply,
       tts: reply,
@@ -2894,7 +2900,7 @@ function runVoiceCommand(cmd) {
         else applyRemoteVoiceAction(data);
       }
     };
-    appendLog('理解', '意图：' + remoteIntent.intent + '｜引擎：' + (data.engine || 'rules') + '｜已由 Qwen 处理');
+    appendLog('理解', '意图：' + remoteIntent.intent + '｜引擎：' + (data.engine || 'rules') + (corrected ? '｜Qwen 结果已校验纠正' : '｜已由 Qwen 处理'));
     finishVoiceCommand(remoteIntent, (data.engine === 'qwen' ? 'Qwen 模型' : 'Qwen 故障兜底') + '：' + (data.tool || '无需工具'));
   }).catch(function(err) {
     appendLog('错误', err.message || '无法连接小卡服务');
@@ -2928,7 +2934,8 @@ function resolveQwenUiIntent(data, originalText) {
       if (features[args.screen]) return parseNavigationIntent('打开' + features[args.screen]);
     }
     if (name === 'media_play_pause') return parseVoiceIntent(args.action === 'pause' ? '暂停' : '继续播放');
-    if (name === 'chat' || name === 'unknown') return null;
+    if (name === 'chat') return null;
+    if (name === 'unknown' || name === '未识别' || !name) return parseVoiceIntent(originalText);
   }
   // Qwen unavailable or malformed: preserve basic usability with local rules.
   return parseVoiceIntent(originalText);
