@@ -2900,8 +2900,9 @@ function startVoiceListening(forcePrompt) {
 
 function handleVoiceText(text) {
   if (!voiceAwake && containsWakeWord(text)) {
-    appendLog('唤醒', '检测到唤醒词，已准备接收指令');
     document.getElementById('voiceOverlay').classList.add('show');
+    setVoiceStatus('🎙️ 正在识别...', text);
+    appendLog('唤醒', '检测到唤醒词，已准备接收指令');
     setVoiceAwake(true);
     var commandAfterWake = stripWakeWord(text);
     speakVoice(commandAfterWake ? '我在，马上处理。' : '我在，请说。');
@@ -2912,6 +2913,7 @@ function handleVoiceText(text) {
   // Background conversation is intentionally discarded: it is neither sent
   // to Qwen nor written to the visible assistant history.
   if (!voiceAwake) return;
+  setVoiceStatus('🎙️ 正在识别...', text);
   appendLog('ASR', text);
   var command = stripWakeWord(text);
   if (command) {
@@ -2995,6 +2997,7 @@ function resolveQwenUiIntent(data, originalText) {
   if (data.engine === 'qwen') {
     if (name === 'song_play') {
       var song = getSongByName(args.song) || findSongByText(args.song || originalText);
+      if (!song && !args.song) song = getRelativeSong(0) || getSongByName('最炫民族风');
       if (song) return makePlaySongIntent(song, 'Qwen 播放歌曲');
     }
     if (name === 'song_favorite') return parseSongIntent('记住我喜欢' + (args.song || originalText));
@@ -3427,6 +3430,15 @@ function autoStartVoiceMonitoring() {
   }
   if (!VoiceRecognition && !NativeVoice) {
     setVoiceStatus('当前浏览器不支持语音识别', '请使用最新版 Chrome 或 Edge');
+    return;
+  }
+  // 安卓盒子场景：检测到原生语音桥（AndroidVoice）就直接自动开启监听，
+  // 免去每次点一次“开启小卡”。
+  if (NativeVoice && NativeVoice.start) {
+    voiceUserEnabled = true;
+    lsSet('wadw_voice_enabled', '1');
+    startVoiceListening(false);
+    appendLog('监听', '检测到安卓原生语音桥，自动开启持续监听');
     return;
   }
   getMicrophonePermissionState().then(function(state) {
