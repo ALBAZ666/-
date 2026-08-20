@@ -11,8 +11,17 @@ const DEFAULT_PYTHON = 'C:\\Users\\Administrator\\AppData\\Local\\Programs\\Pyth
 const PYTHON_BIN = process.env.XIAOKA_PYTHON || (fs.existsSync(DEFAULT_PYTHON) ? DEFAULT_PYTHON : 'python');
 const QWEN_SERVICE_SCRIPT = path.join(ROOT, 'scripts', 'qwen_service.py');
 const QWEN_MODEL_PATH = process.env.XIAOKA_QWEN_MODEL || 'E:\\AI\\Models\\Qwen3-0.6B';
+const ASR_PYTHON = process.env.XIAOKA_PYTHON || 'C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python313\\python.exe';
+const ASR_SCRIPT = path.join(ROOT, 'scripts', 'sensevoice_asr.py');
+const ASR_SERVICE_SCRIPT = path.join(ROOT, 'scripts', 'sensevoice_service.py');
+
+let asrWorker = null;
+let asrRequestId = 0;
+const asrPending = new Map();
 
 let qwenWorker = null;
+process.on('uncaughtException', err => console.error('[小卡] 未捕获异常：', err.stack || err.message));
+process.on('unhandledRejection', err => console.error('[小卡] 未处理异步异常：', err && (err.stack || err.message || err)));
 let qwenRequestId = 0;
 const qwenPending = new Map();
 
@@ -53,13 +62,79 @@ function readBody(req) {
     let body = '';
     req.on('data', chunk => {
       body += chunk;
-      if (body.length > 1024 * 64) {
+      if (body.length > 20 * 1024 * 1024) {
         reject(new Error('request body too large'));
         req.destroy();
       }
     });
     req.on('end', () => resolve(body));
     req.on('error', reject);
+  });
+}
+
+function runAsr(audioBase64) {
+  return new Promise((resolve) => {
+    startAsrWorker();
+    if (!asrWorker || !asrWorker.stdin.writable) {
+      return resolve({ ok: false, error: 'ASR 常驻进程不可用，回退单次进程' });
+    }
+    const id = ++asrRequestId;
+    const timer = setTimeout(() => {
+      asrPending.delete(id);
+      resolve({ ok: false, error: 'ASR 响应超时' });
+    }, 60000);
+    asrPending.set(id, { resolve, timer });
+    asrWorker.stdin.write(JSON.stringify({ id, audio: audioBase64 }) + '\n', err => {
+      if (err) {
+        clearTimeout(timer);
+        asrPending.delete(id);
+        resolve({ ok: false, error: err.message });
+      }
+    });
+  });
+}
+
+function startAsrWorker() {
+  if (asrWorker) return;
+  asrWorker = spawn(ASR_PYTHON, [ASR_SERVICE_SCRIPT], {
+    stdio: ['pipe', 'pipe', 'ignore'],
+    windowsHide: true,
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+  });
+  let buffer = '';
+  asrWorker.stdout.on('data', chunk => {
+    buffer += chunk.toString();
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || '';
+    lines.filter(Boolean).forEach(line => {
+      try {
+        const message = JSON.parse(line);
+        if (message.ready) {
+          console.log('[小卡] SenseVoice 常驻识别已就绪');
+          return;
+        }
+        const pending = asrPending.get(message.id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        asrPending.delete(message.id);
+        pending.resolve(message.ok ? { ok: true, text: message.text } : { ok: false, error: message.error || 'ASR 识别失败' });
+      } catch (e) {
+        console.warn('[小卡] ASR 输出解析失败：', line.slice(0, 240));
+      }
+    });
+  });
+  asrWorker.on('error', err => {
+    console.warn('[小卡] ASR 常驻进程启动失败：', err.message);
+    asrWorker = null;
+  });
+  asrWorker.on('close', code => {
+    console.warn(`[小卡] ASR 常驻进程结束（code=${code}）`);
+    asrWorker = null;
+    for (const [id, pending] of asrPending) {
+      clearTimeout(pending.timer);
+      pending.resolve({ ok: false, error: 'ASR 常驻进程已结束' });
+      asrPending.delete(id);
+    }
   });
 }
 
@@ -320,10 +395,16 @@ const server = http.createServer((req, res) => {
     });
   }
   if (req.url.startsWith('/api/agent') && req.method === 'POST') return handleAgent(req, res);
+  if (req.url.startsWith('/api/asr') && req.method === 'POST') return handleAsr(req, res);
   return serveStatic(req, res);
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+async function handleAsr(req, res) {
+  try { const body = JSON.parse(await readBody(req)); const result = await runAsr(String(body.audio || '')); json(res, 200, result); }
+  catch (e) { json(res, 400, { ok: false, error: e.message }); }
+}
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('小卡 Agent 已启动');
   console.log(`访问地址：http://localhost:${PORT}`);
@@ -331,4 +412,5 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('按 Ctrl+C 停止');
   console.log('');
   startQwenWorker();
+  startAsrWorker();
 });

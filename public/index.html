@@ -2509,8 +2509,16 @@ var voiceManuallyClosed = lsGet('wadw_voice_manually_closed', '') === '1';
 var voiceMediaStream = null;
 var voiceLastStartAt = 0;
 var voiceSpeechVoices = [];
-var voiceApiBase = 'http://localhost:8123';
+var voiceApiBase = 'http://192.168.7.139:8123';
 var VoiceRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+var NativeVoice = window.AndroidVoice;
+
+window.handleNativeVoice = function(text) {
+  if (text) handleVoiceText(text);
+};
+window.handleNativeVoiceError = function(code) {
+  appendLog('监听', '安卓语音识别暂时不可用（' + code + '）');
+};
 
 function toggleVoice() {
   var ov = document.getElementById('voiceOverlay');
@@ -2534,7 +2542,7 @@ function openVoice() {
     clearTimeout(voiceSleepTimer);
   }
 
-  if (!VoiceRecognition) {
+  if (!VoiceRecognition && !NativeVoice) {
     document.getElementById('vStatus').textContent = '当前浏览器不支持语音识别';
     document.getElementById('vStatusSub').textContent = '请使用最新版 Chrome 或 Edge 打开此原型';
     appendLog('提示', '未找到 SpeechRecognition / webkitSpeechRecognition');
@@ -2583,6 +2591,12 @@ function setVoiceStatus(title, sub) {
 
 function speakVoice(text) {
   if (!text) return;
+  if (NativeVoice && NativeVoice.speak) {
+    appendLog('播报', '小卡正在说话：' + text);
+    NativeVoice.speak(String(text));
+    voiceMutedUntil = Date.now() + Math.max(1800, text.length * 260);
+    return;
+  }
   if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
     appendLog('播报', '当前浏览器没有可用的虚拟语音，文字回答仍会正常显示');
     return;
@@ -2756,7 +2770,7 @@ function showMicrophonePermissionPrompt(closed) {
   if (text) {
     text.textContent = closed
       ? '小卡已经停止监听。需要继续使用语音唤醒和语音指令时，点击一次“开启小卡”即可重新开启。'
-      : '点击一次“开启小卡”后，再在浏览器左上角允许一次麦克风，小卡就会在后台持续监听唤醒词。';
+      : '点击一次“开启小卡”，允许 Android 麦克风权限后，小卡就会持续监听语音指令。';
   }
   if (prompt) prompt.classList.add('show');
   document.getElementById('voiceOverlay').classList.remove('show');
@@ -2786,8 +2800,8 @@ function enableMicrophoneAgain() {
   lsSet('wadw_voice_manually_closed', '0');
   document.getElementById('voiceOverlay').classList.add('show');
   document.getElementById('vLog').innerHTML =
-    '<div class="line"><span class="tag asr">💬 语音</span><span class="txt" style="color:var(--muted);">正在开启小卡，请在浏览器左上角允许一次麦克风</span></div>';
-  setVoiceStatus('正在开启小卡麦克风', '请在浏览器左上角点击允许');
+    '<div class="line"><span class="tag asr">💬 语音</span><span class="txt" style="color:var(--muted);">正在开启 Android 原生麦克风</span></div>';
+  setVoiceStatus('正在开启小卡麦克风', '由 Android 系统管理麦克风权限');
   startVoiceListening(true);
 }
 
@@ -2801,6 +2815,7 @@ function stopVoiceListening(showPrompt) {
   lsSet('wadw_voice_manually_closed', '1');
   clearTimeout(voiceRestartTimer);
   clearTimeout(voiceSleepTimer);
+  if (NativeVoice && NativeVoice.stop) NativeVoice.stop();
   if (voiceRecognition) {
     try { voiceRecognition.onend = null; voiceRecognition.stop(); } catch (e) {}
     try { voiceRecognition.abort(); } catch (e2) {}
@@ -2857,6 +2872,16 @@ function startVoiceListening(forcePrompt) {
   voiceManuallyClosed = false;
   lsSet('wadw_voice_manually_closed', '0');
   voiceStartPending = true;
+  if (NativeVoice && NativeVoice.start) {
+    voiceStartPending = false;
+    voiceMonitoring = true;
+    voiceUserEnabled = true;
+    lsSet('wadw_voice_enabled', '1');
+    setVoiceStatus('说“小卡小卡”唤醒我', 'Android 原生麦克风已开启，小卡正在后台待命');
+    appendLog('监听', 'Android 原生麦克风与语音识别已开启');
+    NativeVoice.start();
+    return;
+  }
   requestMicrophoneOnce(forcePrompt).then(function() {
     voiceStartPending = false;
     if (!voiceMonitoring || voiceManuallyClosed) return;
@@ -3400,7 +3425,7 @@ function autoStartVoiceMonitoring() {
     document.getElementById('voiceFab').classList.remove('listening');
     return;
   }
-  if (!VoiceRecognition) {
+  if (!VoiceRecognition && !NativeVoice) {
     setVoiceStatus('当前浏览器不支持语音识别', '请使用最新版 Chrome 或 Edge');
     return;
   }
