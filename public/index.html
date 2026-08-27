@@ -707,6 +707,9 @@
   .voice-panel .v-head h3 { font-family: 'Outfit', 'Microsoft YaHei', sans-serif; font-size: 1.3rem; font-weight: 700; }
   .voice-panel .v-close { background: none; border: none; font-size: 1.6rem; color: var(--muted); cursor: pointer; line-height: 1; }
   .voice-panel .v-close:hover { color: var(--accent); }
+  .voice-panel .v-head-right { display: flex; align-items: center; gap: 10px; }
+  .voice-panel .v-clear { background: var(--rule); border: none; border-radius: 8px; padding: 6px 12px; font: inherit; font-weight: 700; color: var(--muted); cursor: pointer; }
+  .voice-panel .v-clear:hover { color: var(--accent); }
 
   .mic-permission-overlay {
     position: fixed;
@@ -1592,7 +1595,10 @@
   <div class="voice-panel">
     <div class="v-head">
       <h3>🎤 小卡语音助手</h3>
-      <button class="v-close" onclick="closeVoice()">×</button>
+      <div class="v-head-right">
+        <button class="v-clear" onclick="clearVoiceLog()">清空</button>
+        <button class="v-close" onclick="closeVoice()">×</button>
+      </div>
     </div>
     <div class="v-mic-area">
       <div class="v-mic-icon" id="vMicIcon">🎤</div>
@@ -2565,6 +2571,11 @@ function closeVoice() {
     setVoiceStatus('说“小卡小卡”唤醒我', '后台持续监听中，唤醒后会自动弹出面板');
     appendLog('界面', '语音面板已收起，后台监听继续');
   }
+}
+
+function clearVoiceLog() {
+  var log = document.getElementById('vLog');
+  if (log) log.innerHTML = '<div class="line"><span class="tag asr">💬 语音</span><span class="txt" style="color:var(--muted);">日志已清空</span></div>';
 }
 
 function appendLog(tag, text) {
