@@ -2635,12 +2635,14 @@ if ('speechSynthesis' in window) {
 }
 
 function containsWakeWord(text) {
-  return /小卡小卡|小卡/.test(String(text || ''));
+  // 必须出现连续的"小卡小卡"才视为唤醒词，避免单个"小卡"误触发
+  return /小卡小卡|小卡\s*小卡/.test(String(text || ''));
 }
 
 function stripWakeWord(text) {
   return String(text || '')
-    .replace(/小卡小卡|小卡/g, '')
+    .replace(/小卡小卡|小卡\s*小卡/g, '')
+    .replace(/小卡/g, '')
     .replace(/[，。！？、,.!?;；：:\s]/g, '')
     .trim();
 }
