@@ -2946,13 +2946,56 @@ function runVoiceCommand(cmd) {
   appendLog('理解', '已发送给 Qwen3-0.6B，正在理解并生成执行方案...');
   setVoiceStatus('🤔 Qwen 正在理解...', '语音文字已送入模型，完成后自动执行');
 
-  fetch(voiceApiBase + '/api/agent', {
+  // 盒子本地 Qwen（llama-server）优先；不可用时回退电脑服务端
+  callBoxLocalAgent(cmd).then(function(data) {
+    if (!data) return callServerAgent(cmd);
+    return data;
+  }).then(function(data) {
+    processAgentResponse(data, cmd);
+  }).catch(function() {
+    return callServerAgent(cmd).then(function(data) { processAgentResponse(data, cmd); });
+  });
+}
+
+function callServerAgent(cmd) {
+  return fetch(voiceApiBase + '/api/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: cmd })
-  }).then(function(res) {
-    return res.json();
-  }).then(function(data) {
+  }).then(function(res) { return res.json(); });
+}
+
+function callBoxLocalAgent(cmd) {
+  // 调用盒子本地 llama-server (127.0.0.1:8080)，让 Qwen 输出意图 JSON
+  var prompt = '你是一个中文语音助手小卡。把用户指令解析成JSON：{"intent":"media_next|media_previous|media_play_pause|song_play|navigate|chat|unknown","args":{?},"has_more_thoughts":false}。只输出JSON，不加其他文字。用户说："' + cmd + '"';
+  return fetch('http://127.0.0.1:8080/completion', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: prompt, n_predict: 60, temperature: 0.1 })
+  }).then(function(res) { return res.json(); }).then(function(data) {
+    var text = (data && data.content) ? data.content.trim() : '';
+    if (!text) return null;
+    // 从输出中提取 JSON
+    var start = text.indexOf('{');
+    var end = text.lastIndexOf('}');
+    var parsed = null;
+    if (start >= 0 && end > start) {
+      try { parsed = JSON.parse(text.substring(start, end + 1)); } catch (e) {}
+    }
+    if (!parsed || !parsed.intent) return null;
+    // 转成页面 agent 响应格式
+    return {
+      ok: true, heard: cmd, engine: 'qwen',
+      intent: parsed.intent, confidence: 0.9,
+      reply: parsed.reply || '好的，我处理一下。',
+      tool: '本地Qwen', args: parsed.args || {},
+      qwenError: '', toolResult: { ok: true }
+    };
+  }).catch(function() { return null; });
+}
+
+function processAgentResponse(data, cmd) {
+  try {
     if (!data.ok) throw new Error(data.error || 'Agent 请求失败');
     // Every utterance goes through Qwen first. The local intent table only
     // supplies the UI action when the model returns an intent the prototype
@@ -2976,12 +3019,12 @@ function runVoiceCommand(cmd) {
     };
     appendLog('理解', '意图：' + remoteIntent.intent + '｜引擎：' + (data.engine || 'rules') + (corrected ? '｜Qwen 结果已校验纠正' : '｜已由 Qwen 处理'));
     finishVoiceCommand(remoteIntent, (data.engine === 'qwen' ? 'Qwen 模型' : 'Qwen 故障兜底') + '：' + (data.tool || '无需工具'));
-  }).catch(function(err) {
+  } catch (err) {
     appendLog('错误', err.message || '无法连接小卡服务');
     setVoiceStatus('❌ 执行失败', '请确认小卡服务正在运行');
     speakVoice('我这边暂时无法连接智能体服务。');
     finishVoiceCommandCycle();
-  });
+  }
 }
 
 function finishVoiceCommandCycle() {
