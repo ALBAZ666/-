@@ -79,8 +79,23 @@ static void handle(int cfd){
     const char *resp="{\"ok\":false,\"text\":\"\"}";
     char rtext[512]="";
     if(w.samples){
+        // 重采样到 16000（支持 48k/44.1k/32k/16k 输入）
+        float *s16 = w.samples;
+        int32_t n16 = w.num_samples;
+        int32_t sr = w.sample_rate;
+        if (sr != 16000 && sr > 0) {
+            int32_t outn = (int32_t)((int64_t)n16 * 16000 / sr);
+            float *tmp = (float*)malloc(sizeof(float)*outn);
+            for (int32_t i=0;i<outn;i++) {
+                double x = (double)i * n16 / outn;
+                int32_t i0 = (int32_t)x;
+                if (i0 >= n16-1) tmp[i]=w.samples[n16-1];
+                else { double f=x-i0; tmp[i]=(float)(w.samples[i0]*(1-f)+w.samples[i0+1]*f); }
+            }
+            s16=tmp; n16=outn; sr=16000;
+        }
         SherpaOnnxOfflineStream *s=SherpaOnnxCreateOfflineStream(g_rec);
-        SherpaOnnxAcceptWaveformOffline(s,w.sample_rate,w.samples,w.num_samples);
+        SherpaOnnxAcceptWaveformOffline(s,sr,s16,n16);
         SherpaOnnxDecodeOfflineStream(g_rec,s);
         const SherpaOnnxOfflineRecognizerResult *r=SherpaOnnxGetOfflineStreamResult(s);
         snprintf(rtext,sizeof(rtext),"%s",r->text);
@@ -88,9 +103,11 @@ static void handle(int cfd){
         for(char *q=rtext;*q;q++) if(*q=='"'||*q=='\\') *q=' ';
         SherpaOnnxDestroyOfflineStream(s);
         free(w.samples);
+        if (s16 != w.samples) free(s16);
     }
     char out[2048];
-    snprintf(out,sizeof(out),"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n{\"ok\":true,\"text\":\"%s\"}", strlen(rtext)+11, rtext);
+    // {"ok":true,"text":""} 固定部分: {"ok":true,"text":"  = 19 + text + "} = 2 => rtext_len+21
+    snprintf(out,sizeof(out),"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n{\"ok\":true,\"text\":\"%s\"}", strlen(rtext)+21, rtext);
     write(cfd,out,strlen(out));
     free(body); free(raw); close(cfd);
 }
