@@ -25,91 +25,83 @@ static size_t b64_decode(const char *in, unsigned char *out, size_t max) {
     return o;
 }
 
-// 从 base64 解码的 WAV（PCM16）解析
+// 从 base64 解码的 WAV（PCM16）解析 — 标准 44 字节头
 static Wave wav_from_mem(const unsigned char *d, size_t len) {
     Wave w={0};
-    if(len<44) return w;
-    // 找 data chunk
-    size_t i=12;
-    while(i+8<=len){
-        unsigned br,size;
-        memcpy(&br,d+i,4); memcpy(&size,d+i+4,4);
-        if(memcmp(d+i,"fmt ",4)==0){
-            unsigned fmt; memcpy(&fmt,d+i+8,2);
-            // 若 fmt 不是 PCM（format tag=1）可能需要其他; 假设 1
-        } else if(memcmp(d+i,"data",4)==0){
-            // 头部: 44 固定对 PCM。取 data from i+8, size bytes
-            int16_t *pcm=(int16_t*)(d+i+8);
-            int32_t n=size/2;
-            // sample_rate 在 24 偏移, channels 在 22
-            int32_t sr; memcpy(&sr,d+24,4);
-            unsigned ch; memcpy(&ch,d+22,2);
-            int32_t mono = (ch==2)? n/2 : n;
-            w.samples=(float*)malloc(sizeof(float)*mono);
-            for(int32_t k=0;k<mono;k++) w.samples[k]=pcm[k*ch]/32768.0f;
-            w.sample_rate=sr; w.num_samples=mono;
-            break;
-        }
-        i+=8+size;
-    }
+    if(len < 44) return w;
+    // 偏移0-3 RIFF, 8-11 WAVE, 检查 data 必须存在
+    if(memcmp(d,"RIFF",4)!=0 || memcmp(d+8,"WAVE",4)!=0) return w;
+    uint32_t sr; memcpy(&sr,d+24,4);
+    uint16_t ch; memcpy(&ch,d+22,2);
+    uint16_t bits; memcpy(&bits,d+34,2);
+    // data 数据从偏移 44 开始（标准 PCM）
+    size_t data_bytes = len - 44;
+    if(data_bytes < 2) return w;
+    int32_t n = (int32_t)(data_bytes/2);
+    int32_t mono = (ch==2)? n/2 : n;
+    if(mono<=0) return w;
+    const int16_t *pcm=(const int16_t*)(d+44);
+    w.samples=(float*)malloc(sizeof(float)*mono);
+    for(int32_t k=0;k<mono;k++) w.samples[k]=pcm[k*ch]/32768.0f;
+    w.sample_rate=(int32_t)sr; w.num_samples=mono;
+    (void)bits;
     return w;
 }
 
 static void handle(int cfd){
-    char head[4096]; int hn=read(cfd,head,sizeof(head)-1); if(hn<=0){close(cfd);return;} head[hn]=0;
-    char *hb=strstr(head,"\r\n\r\n"); if(!hb){close(cfd);return;}
-    int hlen=(int)(hb-head)+4;
-    // Content-Length
-    int body_len=0; char *cl=strstr(head,"Content-Length:"); if(cl) body_len=atoi(cl+15);
-    // 读 header 内已有的 body 部分 + 剩余
-    int have = hn-hlen; 
-    char *body=malloc(body_len+1);
-    memcpy(body, head+hlen, have);
-    int got=have;
-    while(got<body_len){ int r=read(cfd,body+got,body_len-got); if(r<=0)break; got+=r; }
-    body[got]=0;
-    // {"audio":"BASE64"}
-    char *p=strstr(body,"\"audio\":\""); if(!p){ body_len=0; }
-    char *b64 = p? p+9 : NULL;
-    char *end = b64? strchr(b64,'"') : NULL;
-    unsigned char *raw=malloc(body_len);
-    size_t rawlen=0;
-    if(b64&&end){ *end=0; rawlen=b64_decode(b64,raw,body_len); }
-    Wave w=wav_from_mem(raw, rawlen);
-    const char *resp="{\"ok\":false,\"text\":\"\"}";
-    char rtext[512]="";
-    if(w.samples){
-        // 重采样到 16000（支持 48k/44.1k/32k/16k 输入）
-        float *s16 = w.samples;
-        int32_t n16 = w.num_samples;
-        int32_t sr = w.sample_rate;
-        if (sr != 16000 && sr > 0) {
-            int32_t outn = (int32_t)((int64_t)n16 * 16000 / sr);
-            float *tmp = (float*)malloc(sizeof(float)*outn);
-            for (int32_t i=0;i<outn;i++) {
-                double x = (double)i * n16 / outn;
-                int32_t i0 = (int32_t)x;
-                if (i0 >= n16-1) tmp[i]=w.samples[n16-1];
-                else { double f=x-i0; tmp[i]=(float)(w.samples[i0]*(1-f)+w.samples[i0+1]*f); }
-            }
-            s16=tmp; n16=outn; sr=16000;
-        }
-        SherpaOnnxOfflineStream *s=SherpaOnnxCreateOfflineStream(g_rec);
-        SherpaOnnxAcceptWaveformOffline(s,sr,s16,n16);
-        SherpaOnnxDecodeOfflineStream(g_rec,s);
-        const SherpaOnnxOfflineRecognizerResult *r=SherpaOnnxGetOfflineStreamResult(s);
-        snprintf(rtext,sizeof(rtext),"%s",r->text);
-        // 简单 JSON 转义
-        for(char *q=rtext;*q;q++) if(*q=='"'||*q=='\\') *q=' ';
-        SherpaOnnxDestroyOfflineStream(s);
-        free(w.samples);
-        if (s16 != w.samples) free(s16);
+    // 先读 header（到 \r\n\r\n），最多 32KB
+    char hdr[32768]; int hn=0;
+    while (hn < sizeof(hdr)-1) {
+        int r = read(cfd, hdr+hn, 1);
+        if (r<=0) break;
+        hn++;
+        if (hn>=4 && memcmp(hdr+hn-4,"\r\n\r\n",4)==0) break;
     }
-    char out[2048];
-    // {"ok":true,"text":""} 固定部分: {"ok":true,"text":"  = 19 + text + "} = 2 => rtext_len+21
-    snprintf(out,sizeof(out),"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n{\"ok\":true,\"text\":\"%s\"}", strlen(rtext)+21, rtext);
-    write(cfd,out,strlen(out));
-    free(body); free(raw); close(cfd);
+    if(hn<=0){close(cfd);return;}
+    hdr[hn]=0;
+    // Content-Length
+    long body_len=0;
+    char *cl=strstr(hdr,"Content-Length:");
+    if(cl) body_len=atol(cl+15);
+    if(body_len>0 && body_len<1*1024*1024){
+        char *body=(char*)malloc(body_len+1);
+        int have=0;
+        // 若 header 读取多读了 body（罕见，因为我们逐字节读header，不含body）
+        while(have<body_len){ int r=read(cfd,body+have,body_len-have); if(r<=0)break; have+=r; }
+        body[have]=0;
+        char *p=strstr(body,"\"audio\":"); // 兼容 json 有无空格
+        size_t rawlen=0; unsigned char *raw=NULL; long b64len=-1; 
+        if(p){ char *b64=p+9; while(*b64==' '||*b64=='"') b64++; char *end=strchr(b64,'"'); if(end){*end=0; b64len=strlen(b64); raw=malloc(b64len+4); rawlen=b64_decode(b64,raw,b64len);} fprintf(stderr,"B64 len=%ld first=%.3s\n",b64len,b64); }
+        Wave w=wav_from_mem(raw,rawlen);
+        fprintf(stderr,"DBG body_len=%ld rawlen=%zu w.sr=%d w.n=%d\n",body_len,rawlen,w.sample_rate,w.num_samples);
+        const char *resp="{\"ok\":false,\"text\":\"\"}";
+        char rtext[512]="";
+        if(w.samples){
+            float *s16=w.samples; int32_t n16=w.num_samples; int32_t sr=w.sample_rate;
+            if(sr!=16000 && sr>0){
+                int32_t outn=(int32_t)((int64_t)n16*16000/sr);
+                float *tmp=malloc(sizeof(float)*outn);
+                for(int32_t i=0;i<outn;i++){ double x=(double)i*n16/outn; int32_t i0=(int32_t)x; if(i0>=n16-1)tmp[i]=w.samples[n16-1]; else{double f=x-i0; tmp[i]=(float)(w.samples[i0]*(1-f)+w.samples[i0+1]*f);} }
+                s16=tmp; n16=outn; sr=16000;
+            }
+            SherpaOnnxOfflineStream *s=SherpaOnnxCreateOfflineStream(g_rec);
+            SherpaOnnxAcceptWaveformOffline(s,sr,s16,n16);
+            SherpaOnnxDecodeOfflineStream(g_rec,s);
+            const SherpaOnnxOfflineRecognizerResult *r=SherpaOnnxGetOfflineStreamResult(s);
+            snprintf(rtext,sizeof(rtext),"%s",r->text);
+            for(char *q=rtext;*q;q++) if(*q=='"'||*q=='\\') *q=' ';
+            SherpaOnnxDestroyOfflineStream(s);
+            free(w.samples); if(s16!=w.samples) free(s16);
+        }
+        char out[2048];
+        snprintf(out,sizeof(out),"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n{\"ok\":true,\"text\":\"%s\"}", strlen(rtext)+21, rtext);
+        write(cfd,out,strlen(out));
+        free(body); free(raw);
+    } else {
+        char *out="HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        write(cfd,out,strlen(out));
+    }
+    close(cfd);
 }
 
 int main(int argc,char**argv){
